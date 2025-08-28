@@ -2,14 +2,23 @@
 
 import { Area, AreaChart, Pie, PieChart, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 
 const chartConfig = {
-  minutes: {
+  completed: {
+    label: "Completed",
+    color: "oklch(0.65 0.25 320)", // Color primario para sesiones completadas
+  },
+  distracted: {
+    label: "Interrupted",
+    color: "oklch(0.7 0.15 80)", // Un color diferente para distracciones (ej. naranja)
+  },
+  minutes: { // Mantenemos este para la vista semanal/mensual
     label: "Focus Minutes",
     color: "oklch(0.65 0.25 320)",
   },
-}
+};
+
 
 function getSessionData() {
   if (typeof window === "undefined") return []
@@ -17,104 +26,115 @@ function getSessionData() {
   return sessions ? JSON.parse(sessions) : []
 }
 
-function aggregateDataByPeriod(sessions: any[], period: "day" | "week" | "month") {
-  const now = new Date()
-  const data: { [key: string]: number } = {}
+function aggregateDataByPeriod(
+  sessions: any[],
+  period: "day" | "week" | "month"
+) {
+  const now = new Date();
 
   if (period === "day") {
-    // Group by hour for today
-    const today = now.toDateString()
-    const todaySessions = sessions.filter((session) => new Date(session.completedAt).toDateString() === today)
+    const data: { [key: string]: { completed: number; distracted: number } } = {};
+    const today = now.toDateString();
+    const todaySessions = sessions.filter(
+      (session) => new Date(session.completedAt).toDateString() === today
+    );
 
     for (let hour = 0; hour < 24; hour++) {
-      const hourKey = `${hour.toString().padStart(2, "0")}:00`
-      data[hourKey] = 0
+      const hourKey = `${hour.toString().padStart(2, "0")}:00`;
+      data[hourKey] = { completed: 0, distracted: 0 };
     }
 
     todaySessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt)
-      const hourKey = `${sessionDate.getHours().toString().padStart(2, "0")}:00`
-      data[hourKey] += Math.round(session.duration / 60) // Convert seconds to minutes
-    })
+      const sessionDate = new Date(session.completedAt);
+      const hourKey = `${sessionDate
+        .getHours()
+        .toString()
+        .padStart(2, "0")}:00`;
+      const minutes = Math.round(session.duration / 60);
 
-    return Object.entries(data)
-      .filter(([_, minutes]) => minutes > 0 || Object.keys(data).indexOf(_) % 4 === 0) // Show every 4th hour or hours with data
-      .map(([time, minutes]) => ({ time, minutes }))
-      .slice(0, 12) // Limit to 12 data points
+      if (session.type === "completed") {
+        data[hourKey].completed += minutes;
+      } else if (session.type === "distracted") {
+        data[hourKey].distracted += minutes;
+      }
+    });
+
+    return Object.entries(data).map(([time, { completed, distracted }]) => ({
+      time,
+      completed,
+      distracted,
+    }));
   }
 
   if (period === "week") {
-    // Group by day for this week
-    const weekStart = new Date(now)
-    weekStart.setDate(now.getDate() - now.getDay()) // Start of week (Sunday)
-
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    days.forEach((day) => (data[day] = 0))
+    const weekData: { [key: string]: number } = {};
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    days.forEach((day) => (weekData[day] = 0));
 
     sessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt)
+      const sessionDate = new Date(session.completedAt);
       if (sessionDate >= weekStart) {
-        const dayName = days[sessionDate.getDay()]
-        data[dayName] += Math.round(session.duration / 60) // Convert seconds to minutes
+        const dayName = days[sessionDate.getDay()];
+        weekData[dayName] += Math.round(session.duration / 60);
       }
-    })
-
-    return days.map((day) => ({ day, minutes: data[day] }))
+    });
+    return days.map((day) => ({ day, minutes: weekData[day] }));
   }
 
   if (period === "month") {
-    // Group by week for this month
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    //  corregido: Se usaba `data` del scope exterior que tenía un formato incorrecto para esta sección. 
+    // Ahora usamos `monthData` con el formato correcto.
+    const monthData: { [key: string]: number } = {};
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     for (let week = 1; week <= 4; week++) {
-      data[`Week ${week}`] = 0
+      monthData[`Week ${week}`] = 0;
     }
 
     sessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt)
+      const sessionDate = new Date(session.completedAt);
       if (sessionDate >= monthStart) {
-        const weekOfMonth = Math.ceil(sessionDate.getDate() / 7)
-        const weekKey = `Week ${Math.min(weekOfMonth, 4)}`
-        data[weekKey] += Math.round(session.duration / 60) // Convert seconds to minutes
+        const weekOfMonth = Math.ceil(sessionDate.getDate() / 7);
+        const weekKey = `Week ${Math.min(weekOfMonth, 4)}`;
+        monthData[weekKey] += Math.round(session.duration / 60);
       }
-    })
-
-    return Object.entries(data).map(([day, minutes]) => ({ day, minutes }))
+    });
+    // corregido: Se usaba la variable incorrecta `day` en el mapeo. Ahora se llama `week` para más claridad.
+    return Object.entries(monthData).map(([week, minutes]) => ({
+      day: week, // Usamos la clave 'day' para que el Eje X del gráfico funcione sin cambios
+      minutes,
+    }));
   }
 
-  return []
+  return [];
 }
 
-export function WeeklyProgressChart({ hasData = true }: { hasData?: boolean }) {
-  const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("week")
-  const [chartData, setChartData] = useState<any[]>([])
+export const WeeklyProgressChart = React.memo(function WeeklyProgressChart() {
+  const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("week");
+  const [chartData, setChartData] = useState<any[]>([]);
+
+  const updateChartData = useCallback(() => {
+    const sessions = getSessionData();
+    const aggregatedData = aggregateDataByPeriod(sessions, timePeriod);
+    setChartData(aggregatedData);
+  }, [timePeriod]);
 
   useEffect(() => {
-    const sessions = getSessionData()
-    const aggregatedData = aggregateDataByPeriod(sessions, timePeriod)
-    setChartData(aggregatedData)
-  }, [timePeriod])
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const sessions = getSessionData()
-      const aggregatedData = aggregateDataByPeriod(sessions, timePeriod)
-      setChartData(aggregatedData)
-    }
-
-    // Listen for storage events (from other tabs/windows)
-    window.addEventListener("storage", handleStorageChange)
-
-    // Also check for changes periodically since localStorage changes in same tab don't trigger storage event
-    const interval = setInterval(handleStorageChange, 1000)
+    updateChartData();
+    window.addEventListener("storageUpdated", updateChartData);
+    window.addEventListener("storage", updateChartData);
 
     return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      clearInterval(interval)
-    }
-  }, [timePeriod])
+      window.removeEventListener("storageUpdated", updateChartData);
+      window.removeEventListener("storage", updateChartData);
+    };
+  }, [updateChartData]);
 
-  const actuallyHasData = chartData.some((item) => item.minutes > 0)
+  const actuallyHasData = chartData.some(
+    (item) => item.minutes > 0 || item.completed > 0 || item.distracted > 0
+  );
 
 
   if (!actuallyHasData) {
@@ -217,16 +237,20 @@ export function WeeklyProgressChart({ hasData = true }: { hasData?: boolean }) {
           ))}
         </div>
       </div>
-      <ChartContainer config={chartConfig} className="h-48">
+    <ChartContainer config={chartConfig} className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
             <defs>
-              <linearGradient id="focusGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.65 0.25 320)" stopOpacity={0.8} />
-                <stop offset="100%" stopColor="oklch(0.7 0.3 340)" stopOpacity={0.1} />
+              <linearGradient id="gradCompleted" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={chartConfig.completed.color} stopOpacity={0.8}/>
+                <stop offset="100%" stopColor={chartConfig.completed.color} stopOpacity={0.1}/>
+              </linearGradient>
+              <linearGradient id="gradDistracted" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={chartConfig.distracted.color} stopOpacity={0.7}/>
+                <stop offset="100%" stopColor={chartConfig.distracted.color} stopOpacity={0.1}/>
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.2 0.05 270 / 0.3)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.2 0.05 270 / 0.3)"/>
             <XAxis
               dataKey={timePeriod === "day" ? "time" : "day"}
               axisLine={false}
@@ -239,29 +263,30 @@ export function WeeklyProgressChart({ hasData = true }: { hasData?: boolean }) {
               tick={{ fill: "oklch(0.7 0 0)", fontSize: 12 }}
               tickFormatter={(value) => `${value}m`}
             />
-            <ChartTooltip content={<ChartTooltipContent />} formatter={(value: any) => [`${value}m`, "Focus Time"]} />
-            <Area
-              type="monotone"
-              dataKey="minutes"
-              stroke="oklch(0.65 0.25 320)"
-              strokeWidth={3}
-              fill="url(#focusGradient)"
-              dot={{ fill: "oklch(0.65 0.25 320)", strokeWidth: 2, r: 4 }}
-              activeDot={{ r: 6, fill: "oklch(0.7 0.3 340)", stroke: "oklch(0.98 0 0)", strokeWidth: 2 }}
-            />
+            <ChartTooltip content={<ChartTooltipContent />}/>
+
+            {/* ✅ GRÁFICO CONDICIONAL CORREGIDO */}
+            {timePeriod === "day" ? (
+              <>
+                <Area type="monotone" dataKey="completed" stroke={chartConfig.completed.color} strokeWidth={3} fill="url(#gradCompleted)"/>
+                <Area type="monotone" dataKey="distracted" stroke={chartConfig.distracted.color} strokeWidth={2} fill="url(#gradDistracted)"/>
+              </>
+            ) : (
+              <Area type="monotone" dataKey="minutes" stroke={chartConfig.minutes.color} strokeWidth={3} fill="url(#gradCompleted)"/>
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </ChartContainer>
     </div>
   )
-}
+});
 
-export function DistractionBreakdown({
+export const DistractionBreakdown = React.memo(function DistractionBreakdown({
   hasData = true,
   distractions = {},
 }: {
-  hasData?: boolean
-  distractions?: { [key: string]: number }
+  hasData?: boolean;
+  distractions?: { [key: string]: number };
 }) {
   if (!hasData) {
     return (
@@ -369,9 +394,9 @@ export function DistractionBreakdown({
       </div>
     </div>
   )
-}
+});
 
-export function SessionStatistics({
+export const SessionStatistics = React.memo(function SessionStatistics({
   sessionsCompleted = 0,
   currentStreak = 0,
   totalHours = 0,
@@ -530,4 +555,4 @@ export function SessionStatistics({
       </div>
     </div>
   )
-}
+});
