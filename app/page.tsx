@@ -9,6 +9,9 @@ import {
   WeeklyProgressChart,
   DistractionBreakdown,
   SessionStatistics,
+  AttentionThiefChart,
+  ProductivityHeatmap,
+  FocusRatioChart,
 } from "@/components/analytics-cards";
 import { Navbar } from "@/components/navbar";
 import { SocialSharingCard } from "@/components/social-sharing-card";
@@ -259,6 +262,15 @@ export default function FocusTimer() {
             {/* Main Progress Chart - Full Width */}
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <WeeklyProgressChart />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <AttentionThiefChart distractions={distractions}  />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <ProductivityHeatmap />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <FocusRatioChart />
             </div>
 
             {/* Distraction Breakdown */}

@@ -1,22 +1,27 @@
 "use client"
 
-import { Area, AreaChart, Pie, PieChart, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts"
+import { Area, AreaChart, Pie, PieChart, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Bar, LineChart, Line } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import React, { useState, useEffect, useCallback } from "react"
+import { BarChartHorizontal, BrainCircuit, Flame, TrendingUp, Zap, } from "lucide-react";
 
 const chartConfig = {
   completed: {
     label: "Completed",
-    color: "oklch(0.65 0.25 320)", // Color primario para sesiones completadas
+    color: "oklch(0.65 0.25 320)", 
   },
   distracted: {
     label: "Interrupted",
-    color: "oklch(0.7 0.15 80)", // Un color diferente para distracciones (ej. naranja)
+    color: "oklch(0.7 0.15 80)",
   },
-  minutes: { // Mantenemos este para la vista semanal/mensual
+  minutes: { 
     label: "Focus Minutes",
     color: "oklch(0.65 0.25 320)",
   },
+  ratio: {
+    label: "Focus Ratio",
+    color: "oklch(0.7 0.2 140)" // Un color verde para el progreso
+  }
 };
 
 
@@ -110,6 +115,293 @@ function aggregateDataByPeriod(
 
   return [];
 }
+
+//new
+function getHeatmapData(sessions: any[]) {
+    const heatmap: { [key: string]: number[] } = {
+        "Sun": Array(24).fill(0),
+        "Mon": Array(24).fill(0),
+        "Tue": Array(24).fill(0),
+        "Wed": Array(24).fill(0),
+        "Thu": Array(24).fill(0),
+        "Fri": Array(24).fill(0),
+        "Sat": Array(24).fill(0),
+    };
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+
+    const thisWeekSessions = sessions.filter(s => new Date(s.completedAt) >= weekStart);
+
+    thisWeekSessions.forEach(session => {
+        const date = new Date(session.completedAt);
+        const day = date.getDay(); // 0 for Sun, 1 for Mon...
+        const hour = date.getHours();
+        const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day];
+        if (session.type === 'completed') {
+            heatmap[dayName][hour] += Math.round(session.duration / 60);
+        }
+    });
+    
+    // Encontrar el valor máximo para normalizar los colores
+    const maxMinutes = Math.max(...Object.values(heatmap).flat());
+    
+    return { heatmap, maxMinutes };
+}
+
+// NUEVA función para el Ratio de Foco
+function getFocusRatioData(sessions: any[]) {
+    const data: { [week: string]: { focus: number; distractions: number } } = {};
+    const now = new Date();
+
+    for (let i = 3; i >= 0; i--) {
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - now.getDay() - (i * 7));
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 7);
+        
+        const weekLabel = `Week of ${weekStart.getMonth() + 1}/${weekStart.getDate()}`;
+        data[weekLabel] = { focus: 0, distractions: 0 };
+
+        sessions.forEach(session => {
+            const sessionDate = new Date(session.completedAt);
+            if (sessionDate >= weekStart && sessionDate < weekEnd) {
+                if (session.type === 'completed') {
+                    data[weekLabel].focus += Math.round(session.duration / 60);
+                } else if (session.type === 'distracted') {
+                    data[weekLabel].distractions += 1;
+                }
+            }
+        });
+    }
+
+    return Object.entries(data).map(([week, values]) => ({
+        week,
+        // Si no hay distracciones, el ratio es simplemente el total de minutos de foco (un puntaje alto).
+        ratio: values.distractions > 0 ? Math.round(values.focus / values.distractions) : values.focus,
+    }));
+}
+
+
+
+
+export const AttentionThiefChart = React.memo(function AttentionThiefChart({
+  distractions = {},
+}: {
+  distractions?: { [key: string]: number };
+}) {
+  const hasData = Object.keys(distractions).length > 0;
+
+  if (!hasData) {
+    // Placeholder cuando no hay datos
+    return (
+       <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+        <div className="relative z-10">
+          <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20">
+             <Zap className="w-8 h-8 text-amber-400" />
+          </div>
+          <h3 className="text-xl font-bold text-foreground mb-2">Identify Your Distractions</h3>
+          <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+            Press the "Distraction" button during a session to start tracking what pulls you away.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const distractionData = Object.entries(distractions)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count); // Ordenar de mayor a menor
+
+  const topDistraction = distractionData[0];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
+          <BarChartHorizontal className="w-5 h-5 text-muted-foreground" />
+          Attention Thieves
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Your top distraction is <strong className="text-foreground">{topDistraction.name}</strong> with {topDistraction.count} interruptions.
+        </p>
+      </div>
+      <ChartContainer config={{}} className="h-40">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={distractionData} layout="vertical" margin={{ left: 10, right: 10 }}>
+            <XAxis type="number" hide />
+            <YAxis 
+              type="category" 
+              dataKey="name" 
+              tickLine={false} 
+              axisLine={false}
+              tick={{ fill: "oklch(0.7 0 0)", fontSize: 12 }}
+              width={80} // Ajusta el espacio para los nombres
+            />
+            <ChartTooltip
+              cursor={{ fill: 'oklch(0.5 0.02 270 / 0.1)' }}
+              content={<ChartTooltipContent hideLabel />}
+            />
+            <Bar dataKey="count" radius={5}>
+              {distractionData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={`oklch(0.7 0.15 ${80 + index * 20})`} />
+              ))}
+            </Bar>
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartContainer>
+    </div>
+  );
+});
+
+
+
+export const ProductivityHeatmap = React.memo(function ProductivityHeatmap() {
+    const [data, setData] = React.useState<{ heatmap: { [key: string]: number[] }, maxMinutes: number } | null>(null);
+
+    React.useEffect(() => {
+        const sessions = getSessionData();
+        setData(getHeatmapData(sessions));
+    }, []);
+
+    const hasData = data && data.maxMinutes > 0;
+    
+    if (!hasData) {
+        return (
+            <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+                <div className="relative z-10">
+                    <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
+                        <Flame className="w-8 h-8 text-primary" />
+                    </div>
+                    <h3 className="text-xl font-bold text-foreground mb-2">Find Your Focus Zone</h3>
+                    <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+                        Complete focus sessions to reveal your most productive times of the week.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+    
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const hours = Array.from({ length: 14 }, (_, i) => i + 7); // 7 AM to 8 PM
+
+    return (
+        <div className="space-y-3">
+            <div>
+                <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
+                    <BrainCircuit className="w-5 h-5 text-muted-foreground" />
+                    Weekly Focus Heatmap
+                </h3>
+                <p className="text-sm text-muted-foreground">Your peak concentration times at a glance.</p>
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <div />
+                <div className="grid grid-cols-14 text-center">
+                    {hours.map(h => <span key={h}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}</span>)}
+                </div>
+
+                {days.map(day => (
+                    <React.Fragment key={day}>
+                        <span>{day}</span>
+                        <div className="grid grid-cols-14 gap-1">
+                            {hours.map(hour => {
+                                const minutes = data.heatmap[day][hour];
+                                const opacity = data.maxMinutes > 0 ? minutes / data.maxMinutes : 0;
+                                return (
+                                    <div 
+                                        key={`${day}-${hour}`}
+                                        className="aspect-square rounded-[3px]"
+                                        style={{ 
+                                            backgroundColor: `oklch(0.65 0.25 320 / ${Math.max(opacity, 0.05)})` 
+                                        }}
+                                        title={`${minutes} minutes on ${day} at ${hour}:00`}
+                                    />
+                                );
+                            })}
+                        </div>
+                    </React.Fragment>
+                ))}
+            </div>
+        </div>
+    );
+});
+
+
+export const FocusRatioChart = React.memo(function FocusRatioChart() {
+    const [chartData, setChartData] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        const sessions = getSessionData();
+        setChartData(getFocusRatioData(sessions));
+    }, []);
+
+    const hasData = chartData.some(d => d.ratio > 0);
+
+    if (!hasData) {
+        return (
+             <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+                <div className="relative z-10">
+                    <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20">
+                        <TrendingUp className="w-8 h-8 text-emerald-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-foreground mb-2">Track Your Improvement</h3>
+                    <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+                        This chart shows how many minutes you can focus per distraction. Aim to make this number grow!
+                    </p>
+                </div>
+            </div>
+        );
+    }
+    
+    return (
+        <div className="space-y-4">
+             <div>
+                <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-muted-foreground" />
+                    Focus Ratio Trend
+                </h3>
+                <p className="text-sm text-muted-foreground">Minutes focused per interruption, weekly.</p>
+            </div>
+             <ChartContainer config={chartConfig} className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 10 }}>
+                         <defs>
+                            <linearGradient id="gradRatio" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={chartConfig.ratio.color} stopOpacity={0.4}/>
+                                <stop offset="100%" stopColor={chartConfig.ratio.color} stopOpacity={0.05}/>
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.2 0.05 270 / 0.3)"/>
+                        <XAxis
+                            dataKey="week"
+                            tickLine={false}
+                            axisLine={false}
+                            tick={{ fill: "oklch(0.7 0 0)", fontSize: 10 }}
+                            tickFormatter={(value) => value.substring(value.indexOf(' ')+1)}
+                        />
+                         <YAxis 
+                            tickLine={false}
+                            axisLine={false}
+                            tick={{ fill: "oklch(0.7 0 0)", fontSize: 12 }}
+                        />
+                        <ChartTooltip content={<ChartTooltipContent indicator="dot" />}/>
+                        <Line
+                            type="monotone"
+                            dataKey="ratio"
+                            stroke={chartConfig.ratio.color}
+                            strokeWidth={3}
+                            dot={{ r: 5, fill: chartConfig.ratio.color }}
+                        />
+                        {/* Agregamos un área debajo de la línea para darle más peso visual */}
+                        <Area type="monotone" dataKey="ratio" stroke="none" fill="url(#gradRatio)" />
+                    </LineChart>
+                </ResponsiveContainer>
+            </ChartContainer>
+        </div>
+    );
+});
 
 export const WeeklyProgressChart = React.memo(function WeeklyProgressChart() {
   const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("week");
