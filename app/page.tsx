@@ -18,6 +18,7 @@ import { SocialSharingCard } from "@/components/social-sharing-card";
 import { Play, Pause, Square, RotateCcw } from "lucide-react";
 import { useFocusState, initialState } from "@/hooks/useFocusStateReducer";
 import { useSessionManager } from "@/hooks/useSessionManager";
+import { ConsistencyCalendar, DistractionTrendsChart, PerformanceByTimeOfDay, SessionEffectivenessChart } from "@/components/advanced.analytics";
 
 export default function FocusTimer() {
   const [state, dispatch] = useFocusState();
@@ -263,14 +264,26 @@ export default function FocusTimer() {
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <WeeklyProgressChart />
             </div>
-            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+            {/* <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <AttentionThiefChart distractions={distractions}  />
-            </div>
+            </div> */}
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <ProductivityHeatmap />
             </div>
-            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+            {/* <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <FocusRatioChart />
+            </div> */}
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <ConsistencyCalendar />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <PerformanceByTimeOfDay />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <SessionEffectivenessChart />
+            </div>
+            <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
+              <DistractionTrendsChart />
             </div>
 
             {/* Distraction Breakdown */}
