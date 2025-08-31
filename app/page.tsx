@@ -264,15 +264,11 @@ export default function FocusTimer() {
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <WeeklyProgressChart />
             </div>
-            {/* <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <AttentionThiefChart distractions={distractions}  />
-            </div> */}
+            
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <ProductivityHeatmap />
             </div>
-            {/* <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <FocusRatioChart />
-            </div> */}
+           
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
               <ConsistencyCalendar />
             </div>
