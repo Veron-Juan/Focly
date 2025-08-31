@@ -23,7 +23,13 @@ const chartConfig = {
     color: "oklch(0.7 0.2 140)" // Un color verde para el progreso
   }
 };
+import type { DbSession } from "@/types/database";
+type Session = any;
 
+
+type WeeklyProgressChartProps = {
+  sessions: DbSession[];
+};
 
 function getSessionData() {
   if (typeof window === "undefined") return []
@@ -32,7 +38,7 @@ function getSessionData() {
 }
 
 function aggregateDataByPeriod(
-  sessions: any[],
+  sessions: DbSession[],
   period: "day" | "week" | "month"
 ) {
   const now = new Date();
@@ -41,7 +47,7 @@ function aggregateDataByPeriod(
     const data: { [key: string]: { completed: number; distracted: number } } = {};
     const today = now.toDateString();
     const todaySessions = sessions.filter(
-      (session) => new Date(session.completedAt).toDateString() === today
+      (session) => new Date(session.created_at).toDateString() === new Date().toDateString()
     );
 
     for (let hour = 0; hour < 24; hour++) {
@@ -50,16 +56,16 @@ function aggregateDataByPeriod(
     }
 
     todaySessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt);
+      const sessionDate = new Date(session.created_at);
       const hourKey = `${sessionDate
         .getHours()
         .toString()
         .padStart(2, "0")}:00`;
-      const minutes = Math.round(session.duration / 60);
+      const minutes = Math.round(session.duration_seconds / 60);
 
-      if (session.type === "completed") {
+      if (session.status === "completed") {
         data[hourKey].completed += minutes;
-      } else if (session.type === "distracted") {
+      } else if (session.status === "interrupted") { 
         data[hourKey].distracted += minutes;
       }
     });
@@ -72,49 +78,64 @@ function aggregateDataByPeriod(
   }
 
   if (period === "week") {
+    const today = new Date();
+    // Establecemos el inicio de la semana en Domingo (día 0)
+    const startOfWeek = new Date(today.setDate(today.getDate() - today.getDay()));
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    // Establecemos el final de la semana en Sábado (día 6)
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
     const weekData: { [key: string]: number } = {};
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     days.forEach((day) => (weekData[day] = 0));
 
-    sessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt);
-      if (sessionDate >= weekStart) {
-        const dayName = days[sessionDate.getDay()];
-        weekData[dayName] += Math.round(session.duration / 60);
-      }
+    // Filtramos solo las sesiones que están DENTRO de esta semana
+    const thisWeekSessions = sessions.filter(s => {
+      const sessionDate = new Date(s.created_at);
+      return sessionDate >= startOfWeek && sessionDate <= endOfWeek;
     });
+
+    thisWeekSessions.forEach((session) => {
+      const sessionDate = new Date(session.created_at);
+      const dayName = days[sessionDate.getDay()];
+      // Sumamos la duración sin importar si fue completada o interrumpida
+      weekData[dayName] += Math.round(session.duration_seconds / 60);
+    });
+    
     return days.map((day) => ({ day, minutes: weekData[day] }));
   }
-
   if (period === "month") {
-    //  corregido: Se usaba `data` del scope exterior que tenía un formato incorrecto para esta sección. 
-    // Ahora usamos `monthData` con el formato correcto.
-    const monthData: { [key: string]: number } = {};
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0); // El día 0 del siguiente mes es el último día del mes actual
+    endOfMonth.setHours(23, 59, 59, 999);
 
-    for (let week = 1; week <= 4; week++) {
+    const monthData: { [key: string]: number } = {};
+    const numWeeks = Math.ceil(endOfMonth.getDate() / 7);
+
+    for (let week = 1; week <= numWeeks; week++) {
       monthData[`Week ${week}`] = 0;
     }
 
-    sessions.forEach((session) => {
-      const sessionDate = new Date(session.completedAt);
-      if (sessionDate >= monthStart) {
-        const weekOfMonth = Math.ceil(sessionDate.getDate() / 7);
-        const weekKey = `Week ${Math.min(weekOfMonth, 4)}`;
-        monthData[weekKey] += Math.round(session.duration / 60);
-      }
+    // Filtramos solo las sesiones que están DENTRO de este mes
+    const thisMonthSessions = sessions.filter(s => {
+      const sessionDate = new Date(s.created_at);
+      return sessionDate >= startOfMonth && sessionDate <= endOfMonth;
     });
-    // corregido: Se usaba la variable incorrecta `day` en el mapeo. Ahora se llama `week` para más claridad.
-    return Object.entries(monthData).map(([week, minutes]) => ({
-      day: week, // Usamos la clave 'day' para que el Eje X del gráfico funcione sin cambios
-      minutes,
-    }));
-  }
+
+    thisMonthSessions.forEach((session) => {
+      const sessionDate = new Date(session.created_at);
+      const weekOfMonth = Math.ceil(sessionDate.getDate() / 7);
+      const weekKey = `Week ${weekOfMonth}`;
+      // Sumamos la duración sin importar el estado
+      monthData[weekKey] += Math.round(session.duration_seconds / 60);
+    });
 
   return [];
-}
+}}
 
 //new
 function getHeatmapData(sessions: any[]) {
@@ -132,10 +153,10 @@ function getHeatmapData(sessions: any[]) {
     weekStart.setDate(now.getDate() - now.getDay());
     weekStart.setHours(0, 0, 0, 0);
 
-    const thisWeekSessions = sessions.filter(s => new Date(s.completedAt) >= weekStart);
+    const thisWeekSessions = sessions.filter(s => new Date(s.created_at) >= weekStart);
 
     thisWeekSessions.forEach(session => {
-        const date = new Date(session.completedAt);
+        const date = new Date(session.created_at);
         const day = date.getDay(); // 0 for Sun, 1 for Mon...
         const hour = date.getHours();
         const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day];
@@ -166,7 +187,7 @@ function getFocusRatioData(sessions: any[]) {
         data[weekLabel] = { focus: 0, distractions: 0 };
 
         sessions.forEach(session => {
-            const sessionDate = new Date(session.completedAt);
+            const sessionDate = new Date(session.created_at);
             if (sessionDate >= weekStart && sessionDate < weekEnd) {
                 if (session.type === 'completed') {
                     data[weekLabel].focus += Math.round(session.duration / 60);
@@ -258,8 +279,15 @@ export const AttentionThiefChart = React.memo(function AttentionThiefChart({
 
 
 
-export const ProductivityHeatmap = React.memo(function ProductivityHeatmap() {
+export const ProductivityHeatmap = React.memo(function ProductivityHeatmap({ sessions }: { sessions: Session[] }) {
     const [data, setData] = React.useState<{ heatmap: { [key: string]: number[] }, maxMinutes: number } | null>(null);
+
+
+  useEffect(() => {
+    // La función de agregación ahora usa las sesiones de las props
+    setData(getHeatmapData(sessions));
+  }, [sessions]);
+
 
     React.useEffect(() => {
         const sessions = getSessionData();
@@ -403,26 +431,19 @@ export const FocusRatioChart = React.memo(function FocusRatioChart() {
     );
 });
 
-export const WeeklyProgressChart = React.memo(function WeeklyProgressChart() {
+export const WeeklyProgressChart = React.memo(function WeeklyProgressChart({ sessions }: { sessions:  DbSession[] }) {
   const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("week");
   const [chartData, setChartData] = useState<any[]>([]);
 
-  const updateChartData = useCallback(() => {
-    const sessions = getSessionData();
-    const aggregatedData = aggregateDataByPeriod(sessions, timePeriod);
-    setChartData(aggregatedData);
-  }, [timePeriod]);
-
-  useEffect(() => {
-    updateChartData();
-    window.addEventListener("storageUpdated", updateChartData);
-    window.addEventListener("storage", updateChartData);
-
-    return () => {
-      window.removeEventListener("storageUpdated", updateChartData);
-      window.removeEventListener("storage", updateChartData);
-    };
-  }, [updateChartData]);
+  // Este useEffect ahora se dispara cuando las sesiones o el período de tiempo cambian
+   useEffect(() => {
+    // Asegúrate que tu función aggregateDataByPeriod está actualizada
+    // para usar los campos de DbSession (created_at, duration_seconds, status)
+    if (sessions) {
+      const aggregatedData = aggregateDataByPeriod(sessions, timePeriod);
+      setChartData(aggregatedData);
+    }
+  }, [sessions, timePeriod]);
 
   const actuallyHasData = chartData.some(
     (item) => item.minutes > 0 || item.completed > 0 || item.distracted > 0

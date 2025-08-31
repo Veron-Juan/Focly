@@ -1,74 +1,45 @@
-// src/hooks/useSessionManager.ts
+// hooks/useSessionManager.ts
 
-import { useEffect, useCallback } from "react";
-import { FocusState } from "./useFocusStateReducer"; // Importamos la interfaz
+import { useCallback } from 'react';
+import { createClient } from '@/lib/client';
+import { localStorageService } from '@/services/localStorageService';
+import { supabaseService } from '@/services/supabaseService';
 
-export interface Session {
-    id: string;
-    duration: number; // en segundos
-    completedAt: string;
-    type: 'completed' | 'distracted';
-    distractionType?: string;
-}
+export const useSessionManager = () => {
+  const supabase = createClient();
 
-// Lo ideal es mover estas funciones a un archivo de servicios (e.g., `services/storage.ts`)
-const getSessions = (): Session[] => {
-    if (typeof window === "undefined") return [];
-    const sessions = localStorage.getItem("focusSessions");
-    return sessions ? JSON.parse(sessions) : [];
-};
+  const recordCompletedSession = useCallback(async (plannedDuration: number) => {
+    const { data: { user } } = await supabase.auth.getUser();
 
-const saveSession = (session: Session) => {
-    if (typeof window === "undefined") return;
-    const sessions = getSessions();
-    localStorage.setItem("focusSessions", JSON.stringify([...sessions, session]));
-    // Disparamos un evento custom para que otras partes de la app reaccionen
-    window.dispatchEvent(new Event('storageUpdated'));
-};
+    if (user) {
+      // Usuario logueado: usamos el servicio de Supabase
+      console.log("Saving to Supabase...");
+      return await supabaseService.recordCompletedSession(user, plannedDuration);
+    } else {
+      // Usuario anónimo: usamos el servicio de localStorage
+      console.log("Saving to localStorage...");
+      return localStorageService.recordCompletedSession(plannedDuration);
+    }
+  }, [supabase]);
 
+  const recordDistraction = useCallback(async (
+    reason: string,
+    timeFocused: number,
+    plannedDuration: number
+  ) => {
+    const { data: { user } } = await supabase.auth.getUser();
 
-export const useSessionManager = (dispatch: React.Dispatch<any>) => {
-    // Cargar estadísticas iniciales desde localStorage
-    useEffect(() => {
-        const sessions = getSessions();
-        if (sessions.length > 0) {
-            const stats = sessions.reduce((acc, session) => {
-                acc.totalFocusTime += session.duration;
-                if(session.type === 'completed') {
-                    acc.sessionsCompleted += 1;
-                }
-                if(session.type === 'distracted' && session.distractionType) {
-                    acc.distractions[session.distractionType] = (acc.distractions[session.distractionType] || 0) + 1;
-                }
-                return acc;
-            }, { sessionsCompleted: 0, totalFocusTime: 0, distractions: {} as {[key: string]: number} });
+    if (user) {
+      // Usuario logueado: usamos el servicio de Supabase
+      console.log("Saving distraction to Supabase...");
+      return await supabaseService.recordDistraction(user, reason, timeFocused, plannedDuration);
+    } else {
+      // Usuario anónimo: usamos el servicio de localStorage
+      console.log("Saving distraction to localStorage...");
+      return localStorageService.recordDistraction(reason, timeFocused, plannedDuration);
+    }
+  }, [supabase]);
 
-            dispatch({ type: 'LOAD_STATS', stats });
-        }
-    }, [dispatch]);
-
-    const recordCompletedSession = useCallback((duration: number) => {
-        const session: Session = {
-            id: Date.now().toString(),
-            duration,
-            completedAt: new Date().toISOString(),
-            type: 'completed',
-        };
-        saveSession(session);
-    }, []);
-
-    const recordDistraction = useCallback((distractionType: string, timeFocused: number) => {
-        if (timeFocused > 0) {
-            const session: Session = {
-                id: Date.now().toString(),
-                duration: timeFocused,
-                completedAt: new Date().toISOString(),
-                type: 'distracted',
-                distractionType: distractionType,
-            };
-            saveSession(session);
-        }
-    }, []);
-
-    return { recordCompletedSession, recordDistraction };
+  // Ya no necesitamos el useEffect para cargar datos, eso lo hace el componente principal
+  return { recordCompletedSession, recordDistraction };
 };

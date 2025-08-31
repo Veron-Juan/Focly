@@ -20,7 +20,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import React from "react";
+import React, { useEffect } from "react";
 import {
   CalendarDays,
   SunMoon,
@@ -36,6 +36,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+
+import type { DbSession } from "@/types/database";
 
 interface ChartHelpModalProps {
   title: string;
@@ -77,13 +79,14 @@ function getSessionData() {
  * 1. Agregación para el Calendario de Consistencia
  * Crea un mapa de fechas con los minutos de foco totales para cada día.
  */
-const getCalendarData = (sessions: any[]) => {
+const getCalendarData = (sessions: DbSession[]) => {
   const data: { [date: string]: { level: number; minutes: number } } = {};
 
   sessions.forEach((session) => {
-    const date = new Date(session.completedAt).toISOString().split("T")[0];
-    const minutes = Math.round(session.duration / 60);
-    if (session.type === "completed") {
+    // CAMBIO: Usamos created_at, duration_seconds, y status
+    const date = new Date(session.created_at).toISOString().split("T")[0];
+    const minutes = Math.round(session.duration_seconds / 60);
+    if (session.status === "completed") {
       if (!data[date]) {
         data[date] = { level: 0, minutes: 0 };
       }
@@ -121,7 +124,7 @@ const getCalendarData = (sessions: any[]) => {
 /**
  * 2. Agregación para Rendimiento por Momento del Día
  */
-const getPerformanceByTimeOfDay = (sessions: any[]) => {
+const getPerformanceByTimeOfDay = (sessions: DbSession[]) => {
   const data = {
     Morning: { focusMinutes: 0, distractions: 0 }, // 5am - 12pm
     Afternoon: { focusMinutes: 0, distractions: 0 }, // 12pm - 6pm
@@ -130,7 +133,7 @@ const getPerformanceByTimeOfDay = (sessions: any[]) => {
   };
 
   sessions.forEach((s) => {
-    const hour = new Date(s.completedAt).getHours();
+    const hour = new Date(s.created_at).getHours();
     let period: keyof typeof data;
 
     if (hour >= 5 && hour < 12) period = "Morning";
@@ -138,9 +141,9 @@ const getPerformanceByTimeOfDay = (sessions: any[]) => {
     else if (hour >= 18 && hour < 23) period = "Evening";
     else period = "Night";
 
-    if (s.type === "completed") {
-      data[period].focusMinutes += Math.round(s.duration / 60);
-    } else if (s.type === "distracted") {
+    if (s.status === "completed") {
+      data[period].focusMinutes += Math.round(s.duration_seconds / 60);
+    } else if (s.status === "interrupted") {
       data[period].distractions += 1;
     }
   });
@@ -154,7 +157,7 @@ const getPerformanceByTimeOfDay = (sessions: any[]) => {
  * Si no es así, podemos agrupar por rangos (ej. 0-30min, 30-60min, etc.).
  * Por ahora, lo haré con rangos para que funcione con tu estructura actual.
  */
-const getSessionEffectiveness = (sessions: any[]) => {
+const getSessionEffectiveness = (sessions: DbSession[]) => {
   const data: { [range: string]: { completed: number; interrupted: number } } =
     {
       "0-30 min": { completed: 0, interrupted: 0 },
@@ -164,7 +167,7 @@ const getSessionEffectiveness = (sessions: any[]) => {
     };
 
   sessions.forEach((s) => {
-    const plannedDuration = s.plannedDuration / 60; // Asumiendo que guardas esto
+    const plannedDuration = s.planned_duration_seconds / 60;
     let range: keyof typeof data;
 
     if (plannedDuration <= 30) range = "0-30 min";
@@ -172,7 +175,7 @@ const getSessionEffectiveness = (sessions: any[]) => {
     else if (plannedDuration <= 60) range = "46-60 min";
     else range = "60+ min";
 
-    if (s.type === "completed") data[range].completed += 1;
+    if (s.status === "completed") data[range].completed += 1;
     else data[range].interrupted += 1;
   });
 
@@ -184,30 +187,30 @@ const getSessionEffectiveness = (sessions: any[]) => {
 /**
  * 4. Agregación para Tendencia de Distracciones
  */
-const getDistractionTrends = (sessions: any[]) => {
+const getDistractionTrends = (sessions: DbSession[]) => {
   const trends: { [week: string]: { [distraction: string]: number } } = {};
   const now = new Date();
 
   sessions.forEach((s) => {
-    if (s.type === "distracted" && s.distractionReason) {
-      const sessionDate = new Date(s.completedAt);
+    if (s.status === "interrupted" && s.distraction_reason) {
+      const sessionDate = new Date(s.created_at);
       const weekStart = new Date(sessionDate);
       weekStart.setDate(sessionDate.getDate() - sessionDate.getDay());
       const weekKey = weekStart.toISOString().split("T")[0];
 
       if (!trends[weekKey]) trends[weekKey] = {};
-      if (!trends[weekKey][s.distractionReason]) {
-        trends[weekKey][s.distractionReason] = 0;
+      if (!trends[weekKey][s.distraction_reason]) {
+        trends[weekKey][s.distraction_reason] = 0;
       }
-      trends[weekKey][s.distractionReason] += 1;
+      trends[weekKey][s.distraction_reason] += 1;
     }
   });
 
   const allReasons = [
     ...new Set(
       sessions
-        .filter((s) => s.distractionReason)
-        .map((s) => s.distractionReason)
+        .filter((s) => s.distraction_reason)
+        .map((s) => s.distraction_reason)
     ),
   ];
 
@@ -228,11 +231,21 @@ const getDistractionTrends = (sessions: any[]) => {
 /**
  * 1. Calendario de Consistencia
  */
-export const ConsistencyCalendar = React.memo(function ConsistencyCalendar() {
+export const ConsistencyCalendar = React.memo(function ConsistencyCalendar({
+  sessions,
+}: {
+  sessions: DbSession[];
+}) {
   const [data, setData] = React.useState<{
     dates: { [date: string]: { level: number; minutes: number } };
     levels: number[];
   }>({ dates: {}, levels: [] });
+
+  useEffect(() => {
+    if (sessions) {
+      setData(getCalendarData(sessions));
+    }
+  }, [sessions]);
 
   React.useEffect(() => {
     const sessions = getSessionData();
@@ -268,20 +281,24 @@ export const ConsistencyCalendar = React.memo(function ConsistencyCalendar() {
 
   return (
     <div className="space-y-3">
-        <ChartHelpModal
-                title="Calendario de Consistencia"
-                description={
-                    <p>
-                        Este gráfico muestra tu dedicación diaria. Cada cuadrado es un día; cuanto más oscuro, más minutos de foco acumulaste.
-                        <br/><br/>
-                        <strong>Tu objetivo:</strong> "Pintar" el calendario todos los días para construir un hábito de concentración inquebrantable y no "romper la cadena".
-                    </p>
-                }
-            >
-                <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
-                    <HelpCircle className="w-4 h-4" />
-                </button>
-            </ChartHelpModal>
+      <ChartHelpModal
+        title="Calendario de Consistencia"
+        description={
+          <p>
+            Este gráfico muestra tu dedicación diaria. Cada cuadrado es un día;
+            cuanto más oscuro, más minutos de foco acumulaste.
+            <br />
+            <br />
+            <strong>Tu objetivo:</strong> "Pintar" el calendario todos los días
+            para construir un hábito de concentración inquebrantable y no
+            "romper la cadena".
+          </p>
+        }
+      >
+        <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
+          <HelpCircle className="w-4 h-4" />
+        </button>
+      </ChartHelpModal>
       <div>
         <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
           <CalendarDays className="w-5 h-5 text-muted-foreground" />
@@ -314,7 +331,7 @@ export const ConsistencyCalendar = React.memo(function ConsistencyCalendar() {
  * 2. Rendimiento por Momento del Día
  */
 export const PerformanceByTimeOfDay = React.memo(
-  function PerformanceByTimeOfDay() {
+  function PerformanceByTimeOfDay({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
 
     React.useEffect(() => {
@@ -425,7 +442,7 @@ export const PerformanceByTimeOfDay = React.memo(
  * 3. Efectividad por Duración de Sesión
  */
 export const SessionEffectivenessChart = React.memo(
-  function SessionEffectivenessChart() {
+  function SessionEffectivenessChart({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
 
     React.useEffect(() => {
@@ -452,18 +469,26 @@ export const SessionEffectivenessChart = React.memo(
     return (
       <div className="space-y-4">
         <ChartHelpModal
-                title="Efectividad por Duración de Sesión"
-                description={
-                    <>
-                        <p>Aquí analizamos qué tan exitoso eres completando sesiones según la duración que estableces. La barra verde representa las sesiones completadas y la naranja, las interrumpidas.</p>
-                        <p><strong>Tu objetivo:</strong> Descubrir tu "punto dulce". Si ves que las sesiones de 60 minutos tienen muchas interrupciones, quizás sea más efectivo hacer dos de 30 minutos.</p>
-                    </>
-                }
-            >
-                <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
-                    <HelpCircle className="w-4 h-4" />
-                </button>
-            </ChartHelpModal>
+          title="Efectividad por Duración de Sesión"
+          description={
+            <>
+              <p>
+                Aquí analizamos qué tan exitoso eres completando sesiones según
+                la duración que estableces. La barra verde representa las
+                sesiones completadas y la naranja, las interrumpidas.
+              </p>
+              <p>
+                <strong>Tu objetivo:</strong> Descubrir tu "punto dulce". Si ves
+                que las sesiones de 60 minutos tienen muchas interrupciones,
+                quizás sea más efectivo hacer dos de 30 minutos.
+              </p>
+            </>
+          }
+        >
+          <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        </ChartHelpModal>
         <div>
           <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
             <Timer className="w-5 h-5 text-muted-foreground" />
@@ -523,7 +548,7 @@ export const SessionEffectivenessChart = React.memo(
  * 4. Tendencia de Distracciones Específicas
  */
 export const DistractionTrendsChart = React.memo(
-  function DistractionTrendsChart() {
+  function DistractionTrendsChart({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
 
     React.useEffect(() => {
@@ -560,19 +585,28 @@ export const DistractionTrendsChart = React.memo(
 
     return (
       <div className="space-y-4">
-         <ChartHelpModal
-                title="Tendencia de Distracciones"
-                description={
-                    <>
-                        <p>Este gráfico te muestra la evolución de tus distracciones más comunes a lo largo del tiempo. Cada color representa un tipo de distracción.</p>
-                        <p><strong>Tu objetivo:</strong> Ver que las áreas de color de tus "ladrones de atención" más grandes (ej. Redes Sociales) se hacen más pequeñas con el tiempo, demostrando que tus estrategias para evitarlas están funcionando.</p>
-                    </>
-                }
-            >
-                <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
-                    <HelpCircle className="w-4 h-4" />
-                </button>
-            </ChartHelpModal>
+        <ChartHelpModal
+          title="Tendencia de Distracciones"
+          description={
+            <>
+              <p>
+                Este gráfico te muestra la evolución de tus distracciones más
+                comunes a lo largo del tiempo. Cada color representa un tipo de
+                distracción.
+              </p>
+              <p>
+                <strong>Tu objetivo:</strong> Ver que las áreas de color de tus
+                "ladrones de atención" más grandes (ej. Redes Sociales) se hacen
+                más pequeñas con el tiempo, demostrando que tus estrategias para
+                evitarlas están funcionando.
+              </p>
+            </>
+          }
+        >
+          <button className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors z-10">
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        </ChartHelpModal>
         <div>
           <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center gap-2">
             <TrendingDown className="w-5 h-5 text-muted-foreground" />

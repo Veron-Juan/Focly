@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@/lib/client";
 import { Button } from "@/components/ui/button";
 import { CircularTimer } from "@/components/circular-timer";
 import { SessionModal } from "@/components/session-modal";
@@ -20,19 +21,22 @@ import { useFocusState, initialState } from "@/hooks/useFocusStateReducer";
 import { useSessionManager } from "@/hooks/useSessionManager";
 import { ConsistencyCalendar, DistractionTrendsChart, PerformanceByTimeOfDay, SessionEffectivenessChart } from "@/components/advanced.analytics";
 
+
+import type { DbSession } from "@/types/database";
+
 export default function FocusTimer() {
   const [state, dispatch] = useFocusState();
   const {
     status,
     timeLeft,
     totalTime,
-    sessionsCompleted,
-    totalFocusTime,
-    distractions,
+    
   } = state;
 
-  const { recordCompletedSession, recordDistraction } =
-    useSessionManager(dispatch);
+  const { recordCompletedSession, recordDistraction } = useSessionManager();
+
+    const [allSessions, setAllSessions] = useState<DbSession[]>([]);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(true);
 
   // const [timeLeft, setTimeLeft] = useState(25 * 60) // 25 minutes in seconds
   const [isActive, setIsActive] = useState(false);
@@ -44,6 +48,33 @@ export default function FocusTimer() {
   // const [totalFocusTime, setTotalFocusTime] = useState(0)
   // const [distractions, setDistractions] = useState<{ [key: string]: number }>({})
   const [showCelebration, setShowCelebration] = useState(false);
+
+
+
+
+   useEffect(() => {
+    const fetchAllSessions = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        const { data, error } = await supabase
+          .from("sessions")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error("Error fetching sessions:", error);
+        } else {
+          setAllSessions(data);
+        }
+      }
+      setIsLoadingAnalytics(false);
+    };
+
+    fetchAllSessions();
+  }, []);
+
 
   const playNotificationSound = useCallback(() => {
     // Create a simple notification sound using Web Audio API
@@ -69,26 +100,29 @@ export default function FocusTimer() {
     oscillator.stop(audioContext.currentTime + 0.3);
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
-
     if (status === "running") {
       interval = setInterval(() => dispatch({ type: "TICK" }), 1000);
     }
-
-    // Cuando el tiempo llega a 0
+    
     if (timeLeft <= 0 && status === "running") {
       dispatch({ type: "COMPLETE_SESSION" });
-      recordCompletedSession(totalTime);
+      
+      // CAMBIO: Llamamos a la función que guarda en la BD
+      // y actualizamos el estado local para que los gráficos se refresquen al instante
+      recordCompletedSession(totalTime).then(newSession => {
+        if (newSession) {
+          setAllSessions(prev => [newSession, ...prev]);
+        }
+      });
+
       playNotificationSound();
       setShowCelebration(true);
       setTimeout(() => setShowCelebration(false), 3000);
     }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [status, timeLeft, totalTime, recordCompletedSession, dispatch]);
+    return () => { if (interval) clearInterval(interval); };
+  }, [status, timeLeft, totalTime, recordCompletedSession, dispatch, playNotificationSound]);
 
   // useEffect(() => {
   //   const handleKeyPress = (event: KeyboardEvent) => {
@@ -144,16 +178,40 @@ export default function FocusTimer() {
     dispatch({ type: "RESET" });
   };
 
-  const handleDistraction = (distractionType: string) => {
+ const handleDistraction = (distractionType: string) => {
     const timeFocused = totalTime - timeLeft;
-    recordDistraction(distractionType, timeFocused);
-   dispatch({ type: 'ADD_DISTRACTION', distractionType, timeFocused });
+    
+    // CAMBIO: Llamamos a la función que guarda en la BD
+    // y actualizamos el estado local para un refresh instantáneo
+    recordDistraction(distractionType, timeFocused, totalTime).then(newSession => {
+      if (newSession) {
+        setAllSessions(prev => [newSession, ...prev]);
+      }
+    });
+
+    dispatch({ type: "RESET" }); // Reiniciamos el timer local
     setIsDistractionModalOpen(false);
   };
+
+
+    // CAMBIO: Calculamos las estadísticas a partir de los datos de la BD
+  const sessionsCompleted = allSessions.filter(s => s.status === 'completed').length;
+  const totalFocusTime = allSessions.reduce((acc, s) => acc + s.duration_seconds, 0);
+  const distractions = allSessions
+    .filter(s => s.status === 'interrupted' && s.distraction_reason)
+    .reduce((acc, s) => {
+      acc[s.distraction_reason!] = (acc[s.distraction_reason!] || 0) + 1;
+      return acc;
+    }, {} as { [key: string]: number });
+
+
+
   const progress =
     totalTime > 0 ? ((totalTime - timeLeft) / totalTime) * 100 : 0;
-  const hasAnalyticsData =
-    sessionsCompleted > 0 || Object.keys(distractions).length > 0;
+  const hasAnalyticsData = allSessions.length > 0;
+
+
+    
 
   return (
     <>
@@ -262,24 +320,24 @@ export default function FocusTimer() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             {/* Main Progress Chart - Full Width */}
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <WeeklyProgressChart />
+              <WeeklyProgressChart sessions={allSessions} />
             </div>
             
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <ProductivityHeatmap />
+              <ProductivityHeatmap sessions={allSessions} />
             </div>
            
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <ConsistencyCalendar />
+              <ConsistencyCalendar sessions={allSessions} />
             </div>
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <PerformanceByTimeOfDay />
+              <PerformanceByTimeOfDay sessions={allSessions} />
             </div>
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <SessionEffectivenessChart />
+              <SessionEffectivenessChart sessions={allSessions} />
             </div>
             <div className="md:col-span-2 glass rounded-2xl p-6 h-full hover:glass-strong transition-all duration-300">
-              <DistractionTrendsChart />
+              <DistractionTrendsChart sessions={allSessions} />
             </div>
 
             {/* Distraction Breakdown */}
@@ -297,6 +355,7 @@ export default function FocusTimer() {
                 totalHours={Math.round((totalFocusTime / 3600) * 10) / 10}
                 // El streak requiere una lógica más compleja que podemos ver después
                 currentStreak={sessionsCompleted}
+                //currentStreak={0} // Placeholder
               />
             </div>
           </div>
