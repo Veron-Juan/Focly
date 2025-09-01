@@ -79,8 +79,8 @@ function aggregateDataByPeriod(
 
   if (period === "week") {
     const today = new Date();
-    // Establecemos el inicio de la semana en Domingo (día 0)
-    const startOfWeek = new Date(today.setDate(today.getDate() - today.getDay()));
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
 
     // Establecemos el final de la semana en Sábado (día 6)
@@ -133,9 +133,16 @@ function aggregateDataByPeriod(
       // Sumamos la duración sin importar el estado
       monthData[weekKey] += Math.round(session.duration_seconds / 60);
     });
+     return Object.entries(monthData).map(([week, minutes]) => ({
+      day: week, // Usamos 'day' para que el Eje X del gráfico funcione
+      minutes,
+    }));
+  
+  }
+  
 
   return [];
-}}
+}
 
 //new
 function getHeatmapData(sessions: any[]) {
@@ -149,19 +156,22 @@ function getHeatmapData(sessions: any[]) {
         "Sat": Array(24).fill(0),
     };
     const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
-    weekStart.setHours(0, 0, 0, 0);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
 
-    const thisWeekSessions = sessions.filter(s => new Date(s.created_at) >= weekStart);
+    const thisWeekSessions = sessions.filter(s => new Date(s.created_at) >= startOfWeek);
 
-    thisWeekSessions.forEach(session => {
-        const date = new Date(session.created_at);
-        const day = date.getDay(); // 0 for Sun, 1 for Mon...
+     thisWeekSessions.forEach(session => {
+        // CAMBIO: Usamos los campos de la base de datos
+        const date = new Date(session.created_at); 
+        const day = date.getDay();
         const hour = date.getHours();
         const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day];
-        if (session.type === 'completed') {
-            heatmap[dayName][hour] += Math.round(session.duration / 60);
+        
+        // El heatmap solo muestra sesiones completadas
+        if (session.status === 'completed') { 
+            heatmap[dayName][hour] += Math.round(session.duration_seconds / 60);
         }
     });
     
@@ -283,16 +293,12 @@ export const ProductivityHeatmap = React.memo(function ProductivityHeatmap({ ses
     const [data, setData] = React.useState<{ heatmap: { [key: string]: number[] }, maxMinutes: number } | null>(null);
 
 
-  useEffect(() => {
-    // La función de agregación ahora usa las sesiones de las props
-    setData(getHeatmapData(sessions));
-  }, [sessions]);
-
-
-    React.useEffect(() => {
-        const sessions = getSessionData();
-        setData(getHeatmapData(sessions));
-    }, []);
+   useEffect(() => {
+        if (sessions) {
+            // Llama a la función de agregación (que corregiremos a continuación)
+            setData(getHeatmapData(sessions));
+        }
+    }, [sessions]);
 
     const hasData = data && data.maxMinutes > 0;
     
@@ -432,7 +438,7 @@ export const FocusRatioChart = React.memo(function FocusRatioChart() {
 });
 
 export const WeeklyProgressChart = React.memo(function WeeklyProgressChart({ sessions }: { sessions:  DbSession[] }) {
-  const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("week");
+  const [timePeriod, setTimePeriod] = useState<"day" | "week" | "month">("day");
   const [chartData, setChartData] = useState<any[]>([]);
 
   // Este useEffect ahora se dispara cuando las sesiones o el período de tiempo cambian

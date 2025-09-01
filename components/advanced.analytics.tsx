@@ -241,22 +241,28 @@ export const ConsistencyCalendar = React.memo(function ConsistencyCalendar({
     levels: number[];
   }>({ dates: {}, levels: [] });
 
-  useEffect(() => {
+   useEffect(() => {
     if (sessions) {
       setData(getCalendarData(sessions));
     }
   }, [sessions]);
 
-  React.useEffect(() => {
-    const sessions = getSessionData();
-    setData(getCalendarData(sessions));
-  }, []);
-
   const hasData = Object.keys(data.dates).length > 0;
 
   if (!hasData) {
-    // ... Placeholder ...
-    return <div className="text-center p-6">...</div>;
+    return (
+      <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+        <div className="relative z-10">
+          <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
+            <CalendarDays className="w-8 h-8 text-primary" />
+          </div>
+          <h3 className="text-xl font-bold text-foreground mb-2">Build Your Habit</h3>
+          <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+            Complete sessions day by day to see your consistency visualized on this calendar.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const today = new Date();
@@ -334,10 +340,11 @@ export const PerformanceByTimeOfDay = React.memo(
   function PerformanceByTimeOfDay({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
 
-    React.useEffect(() => {
-      const sessions = getSessionData();
-      setChartData(getPerformanceByTimeOfDay(sessions));
-    }, []);
+    useEffect(() => {
+      if (sessions) {
+        setChartData(getPerformanceByTimeOfDay(sessions));
+      }
+    }, [sessions]);
 
     const hasData = chartData.some(
       (d) => d.focusMinutes > 0 || d.distractions > 0
@@ -345,7 +352,19 @@ export const PerformanceByTimeOfDay = React.memo(
 
     if (!hasData) {
       // ... Placeholder ...
-      return <div className="text-center p-6">...</div>;
+       return (
+        <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+          <div className="relative z-10">
+            <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500/20 to-cyan-500/20">
+              <SunMoon className="w-8 h-8 text-sky-400" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Discover Your Prime Time</h3>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              Log your sessions to find out when you are most productive and when you are most vulnerable to distractions.
+            </p>
+          </div>
+        </div>
+      );
     }
 
     const chartConfig = {
@@ -444,21 +463,29 @@ export const PerformanceByTimeOfDay = React.memo(
 export const SessionEffectivenessChart = React.memo(
   function SessionEffectivenessChart({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
-
-    React.useEffect(() => {
-      // Asumiendo que guardas 'plannedDuration' en tus sesiones
-      const sessions = getSessionData().map((s) => ({
-        ...s,
-        plannedDuration: s.plannedDuration || 25 * 60,
-      })); // Mock 'plannedDuration'
-      setChartData(getSessionEffectiveness(sessions));
-    }, []);
+  // ✅ CORREGIDO: El useEffect ahora usa las props de 'sessions' directamente
+    useEffect(() => {
+      if (sessions) {
+        setChartData(getSessionEffectiveness(sessions));
+      }
+    }, [sessions]);
 
     const hasData = chartData.length > 0;
 
     if (!hasData) {
-      //... Placeholder
-      return <div className="text-center p-6">...</div>;
+    return (
+        <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+          <div className="relative z-10">
+            <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-green-500/20 to-teal-500/20">
+              <Timer className="w-8 h-8 text-green-400" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Find Your Sweet Spot</h3>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              Do longer sessions work for you? Track your completion rate for different durations to find your ideal focus time.
+            </p>
+          </div>
+        </div>
+      );
     }
 
     const chartConfig = {
@@ -551,26 +578,28 @@ export const DistractionTrendsChart = React.memo(
   function DistractionTrendsChart({ sessions }: { sessions: DbSession[] }) {
     const [chartData, setChartData] = React.useState<any[]>([]);
 
-    React.useEffect(() => {
-      // Simulo una propiedad 'distractionReason' para el ejemplo
-      const sessions = getSessionData().map((s) => {
-        const reasons = ["Social Media", "Messages", "Noise"];
-        if (s.type === "distracted") {
-          return {
-            ...s,
-            distractionReason:
-              reasons[Math.floor(Math.random() * reasons.length)],
-          };
-        }
-        return s;
-      });
-      setChartData(getDistractionTrends(sessions));
-    }, []);
+    useEffect(() => {
+      if (sessions) {
+        setChartData(getDistractionTrends(sessions));
+      }
+    }, [sessions]);
 
     const hasData = chartData.length > 0;
 
     if (!hasData) {
-      return <div className="text-center p-6">...</div>;
+       return (
+        <div className="relative flex flex-col items-center justify-center h-full text-center p-6">
+          <div className="relative z-10">
+            <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/10 to-orange-500/10">
+              <TrendingDown className="w-8 h-8 text-red-400" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Conquer Your Distractions</h3>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              When you get distracted, record the reason. This chart will show if you're winning the battle against your top attention thieves over time.
+            </p>
+          </div>
+        </div>
+      );
     }
 
     const allKeys =
