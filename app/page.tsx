@@ -20,7 +20,7 @@ import { Play, Pause, Square, RotateCcw } from "lucide-react";
 import { useFocusState, initialState } from "@/hooks/useFocusStateReducer";
 import { useSessionManager } from "@/hooks/useSessionManager";
 import { ConsistencyCalendar, DistractionTrendsChart, PerformanceByTimeOfDay, SessionEffectivenessChart } from "@/components/advanced.analytics";
-
+export const dynamic = 'force-dynamic'; 
 
 import type { DbSession } from "@/types/database";
 
